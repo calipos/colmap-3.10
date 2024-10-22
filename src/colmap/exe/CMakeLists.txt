@@ -30,6 +30,7 @@
 
 set(FOLDER_NAME "exe")
 
+link_directories(D:/repo/colmapThird/install/jsoncpp-1.9.6/lib)
 if(IS_MSVC)
     add_compile_options("/bigobj")
 endif()

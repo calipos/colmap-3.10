@@ -672,7 +672,7 @@ class SiftGPUFeatureExtractor : public FeatureExtractor {
     // Download the extracted keypoints and descriptors.
     sift_gpu_.GetFeatureVector(keypoints_buffer_.data(),
                                descriptors_float.data());
-
+    
     keypoints->resize(num_features);
     for (size_t i = 0; i < num_features; ++i) {
       (*keypoints)[i] = FeatureKeypoint(keypoints_buffer_[i].x,
@@ -690,8 +690,15 @@ class SiftGPUFeatureExtractor : public FeatureExtractor {
     } else {
       LOG(FATAL_THROW) << "Normalization type not supported";
     }
-
-    *descriptors = FeatureDescriptorsToUnsignedByte(descriptors_float);
+     //LOG(INFO) << descriptors_float.rows();
+     //LOG(INFO) << descriptors_float.cols(); 
+     //std::ofstream outfile("descriptors_float.txt", std::ios::trunc);
+     //outfile << descriptors_float;
+     //outfile.close();
+     *descriptors = FeatureDescriptorsToUnsignedByte(descriptors_float);
+     //std::ofstream outfile2("descriptors.txt", std::ios::trunc);
+     //outfile2 << *descriptors;
+     //outfile2.close();
 
     return true;
   }
@@ -1072,7 +1079,13 @@ class SiftCPUFeatureMatcher : public FeatureMatcher {
                                 &indices_2to1,
                                 &distances_2to1);
     }
-
+    //LOG(INFO) << *descriptors1_;
+    //LOG(INFO) << *descriptors2_;
+    //LOG(INFO) << indices_1to2;
+    //LOG(INFO) << distances_1to2;
+    //LOG(INFO);
+    //LOG(INFO) << indices_2to1;
+    //LOG(INFO) << distances_2to1;
     FindBestMatchesFlann(indices_1to2,
                          distances_1to2,
                          indices_2to1,

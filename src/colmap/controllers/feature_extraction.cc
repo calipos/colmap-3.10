@@ -36,11 +36,105 @@
 #include "colmap/util/misc.h"
 #include "colmap/util/opengl_utils.h"
 #include "colmap/util/timer.h"
-
+#include "colmap/feature/utils.h"
+#include <random>
 #include <numeric>
+#include "json/json.h"
+
+
+
 
 namespace colmap {
 namespace {
+bool readPtsFromLabelMeJson(const std::string& jsonPath,
+                            FeatureKeypoints* keypoints,
+                            FeatureDescriptors* descriptors) {
+  keypoints->clear();
+  // descriptors->resize(keypoints->size(), 128);
+  std::stringstream ss;
+  std::string aline;
+  std::fstream fin(jsonPath, std::ios::in);
+  while (std::getline(fin, aline)) {
+    ss << aline;
+  }
+  std::map<std::string, std::pair<double, double>> labelInfo;
+  fin.close();
+  aline = ss.str();
+  JSONCPP_STRING err;
+  Json::Value newRoot;
+  const auto rawJsonLength = static_cast<int>(aline.length());
+  Json::CharReaderBuilder newBuilder;
+  const std::unique_ptr<Json::CharReader> newReader(newBuilder.newCharReader());
+  if (!newReader->parse(
+          aline.c_str(), aline.c_str() + rawJsonLength, &newRoot, &err)) {
+    return false;
+  }
+  auto newMemberNames = newRoot.getMemberNames();
+  auto pathNode = newRoot["imagePath"];
+  auto shapeNode = newRoot["shapes"];
+  if (pathNode.isNull() || shapeNode.isNull() || !shapeNode.isArray()) {
+    return false;
+  }
+  for (int i = 0; i < shapeNode.size(); i++) {
+    auto label = shapeNode[i];
+    if (label["label"].isNull() || label["points"].isNull() ||
+        label["shape_type"].isNull()) {
+      return false;
+    }
+    std::string shapeType = label["shape_type"].asString();
+    if (shapeType.compare("point") != 0) {
+      continue;
+    }
+    std::string cornerLabel = label["label"].asString();
+    if (label["points"].size() != 1) {
+      LOG(INFO) << "not unique!";
+      return false;
+    } 
+    double x = label["points"][0][0].asDouble();
+    double y = label["points"][0][1].asDouble();
+    if (labelInfo.count(cornerLabel) != 0) {
+      LOG(INFO) << "not unique!";
+      return false;
+    }
+    labelInfo[cornerLabel].first = x;
+    labelInfo[cornerLabel].second = y;
+  }
+  if (labelInfo.size() == 0) {
+    return false;
+  }
+  {
+    int kpIdx = 0;
+    int rand_min = 0, rand_max = 128;
+    std::random_device seed;     
+    keypoints->reserve(labelInfo.size());
+    Eigen::Matrix<float, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>descriptorsFloat;
+    descriptorsFloat.resize(labelInfo.size(), 128);
+    descriptors->resize(labelInfo.size(), 128);
+      for (const auto& d : labelInfo) {
+      keypoints->emplace_back(d.second.first, d.second.second, 1.f,1.f,1.f,1.f);
+      std::hash<std::string> strHash;
+      const auto& thisLabelHash = strHash(d.first);
+      std::ranlux48 engine(thisLabelHash);    
+      std::uniform_int_distribution<int> distrib(0, 21);
+      double sqrSum = 0;
+      std::vector<double> featInt(128);
+      for (int i = 0; i < 128; i++) {
+        featInt[i] = distrib(engine) * 0.01;
+        sqrSum += (featInt[i] * featInt[i]);
+      }
+      for (int i = 0; i < 128; i++) { 
+        descriptorsFloat(kpIdx, i) = 1.f * featInt[i] / std::sqrt(sqrSum);       
+      }
+      kpIdx++;
+    }
+
+      LOG(INFO) << descriptorsFloat;
+    *descriptors = FeatureDescriptorsToUnsignedByte(descriptorsFloat);
+      
+    LOG(INFO) << (*descriptors);
+  }
+  return true;
+}
 
 void ScaleKeypoints(const Bitmap& bitmap,
                     const Camera& camera,
@@ -147,11 +241,13 @@ class ImageResizerThread : public Thread {
 
 class SiftFeatureExtractorThread : public Thread {
  public:
-  SiftFeatureExtractorThread(const SiftExtractionOptions& sift_options,
+  SiftFeatureExtractorThread(const ImageReaderOptions& reader_options,
+                             const SiftExtractionOptions& sift_options,
                              const std::shared_ptr<Bitmap>& camera_mask,
                              JobQueue<ImageData>* input_queue,
                              JobQueue<ImageData>* output_queue)
-      : sift_options_(sift_options),
+      : reader_options_(reader_options),
+        sift_options_(sift_options),
         camera_mask_(camera_mask),
         input_queue_(input_queue),
         output_queue_(output_queue) {
@@ -208,7 +304,18 @@ class SiftFeatureExtractorThread : public Thread {
                             &image_data.keypoints,
                             &image_data.descriptors);
             }
-          } else {
+          } 
+          
+          std::string imageStem;
+          std::string imageExt;
+          SplitFileExtension(image_data.image.Name(), &imageStem, &imageExt);
+          auto jsonPath = JoinPaths(reader_options_.image_path, imageStem) + ".json";
+          if (ExistsFile(jsonPath)) { 
+                //LOG(INFO) << (image_data.descriptors);
+              readPtsFromLabelMeJson(
+                jsonPath, &image_data.keypoints, &image_data.descriptors);
+          }
+          else {
             image_data.status = ImageReader::Status::FAILURE;
           }
         }
@@ -221,7 +328,7 @@ class SiftFeatureExtractorThread : public Thread {
       }
     }
   }
-
+  const ImageReaderOptions reader_options_;
   const SiftExtractionOptions sift_options_;
   std::shared_ptr<Bitmap> camera_mask_;
 
@@ -393,7 +500,8 @@ class FeatureExtractorController : public Thread {
       for (const auto& gpu_index : gpu_indices) {
         sift_gpu_options.gpu_index = std::to_string(gpu_index);
         extractors_.emplace_back(
-            std::make_unique<SiftFeatureExtractorThread>(sift_gpu_options,
+            std::make_unique<SiftFeatureExtractorThread>(reader_options_,
+                                                         sift_gpu_options,
                                                          camera_mask,
                                                          extractor_queue_.get(),
                                                          writer_queue_.get()));
@@ -417,7 +525,8 @@ class FeatureExtractorController : public Thread {
       custom_sift_options.use_gpu = false;
       for (int i = 0; i < num_threads; ++i) {
         extractors_.emplace_back(
-            std::make_unique<SiftFeatureExtractorThread>(custom_sift_options,
+            std::make_unique<SiftFeatureExtractorThread>(reader_options_,
+                                                         custom_sift_options,
                                                          camera_mask,
                                                          extractor_queue_.get(),
                                                          writer_queue_.get()));

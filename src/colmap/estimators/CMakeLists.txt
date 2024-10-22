@@ -152,3 +152,6 @@ COLMAP_ADD_TEST(
     SRCS translation_transform_test.cc
     LINK_LIBS colmap_estimators
 )
+target_compile_options(colmap_estimators 
+	PRIVATE 
+	$<$<CXX_COMPILER_ID:MSVC>:/bigobj>) 

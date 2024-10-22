@@ -29,7 +29,6 @@
 
 
 set(FOLDER_NAME "controllers")
-
 COLMAP_ADD_LIBRARY(
     NAME colmap_controllers
     SRCS
@@ -60,6 +59,9 @@ COLMAP_ADD_LIBRARY(
         Boost::boost
 )
 
+include_directories(D:/repo/colmapThird/install/jsoncpp-1.9.6/include)
+link_directories(D:/repo/colmapThird/install/jsoncpp-1.9.6/lib)
+target_link_libraries(colmap_controllers PRIVATE jsoncpp)
 COLMAP_ADD_TEST(
     NAME hierarchical_mapper_test
     SRCS hierarchical_mapper_test.cc
