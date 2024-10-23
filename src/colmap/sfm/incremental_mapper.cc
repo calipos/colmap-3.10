@@ -1264,6 +1264,7 @@ bool IncrementalMapper::EstimateInitialTwoViewGeometry(
   }
 
   TwoViewGeometryOptions two_view_geometry_options;
+  two_view_geometry_options.min_num_inliers = 5;
   two_view_geometry_options.ransac_options.min_num_trials = 30;
   two_view_geometry_options.ransac_options.max_error = options.init_max_error;
   two_view_geometry = EstimateCalibratedTwoViewGeometry(
